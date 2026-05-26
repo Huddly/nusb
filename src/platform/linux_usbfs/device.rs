@@ -28,7 +28,6 @@ use super::{
     TransferData,
 };
 
-#[cfg(not(target_os = "android"))]
 use super::{
     enumeration::{SysfsError, SysfsErrorKind},
     SysfsPath,
@@ -69,7 +68,6 @@ pub(crate) struct LinuxDevice {
     /// Read from the fd, consists of device descriptor followed by configuration descriptors
     descriptors: Vec<u8>,
 
-    #[cfg(not(target_os = "android"))]
     sysfs: Option<SysfsPath>,
 
     active_config: AtomicU8,
@@ -79,7 +77,6 @@ pub(crate) struct LinuxDevice {
 }
 
 impl LinuxDevice {
-    #[cfg(not(target_os = "android"))]
     pub(crate) fn from_device_info(
         d: &DeviceInfo,
     ) -> impl MaybeFuture<Output = Result<Arc<LinuxDevice>, Error>> {
@@ -109,29 +106,18 @@ impl LinuxDevice {
         })
     }
 
-    #[cfg(target_os = "android")]
-    pub(crate) fn from_device_info(
-        _d: &DeviceInfo,
-    ) -> impl MaybeFuture<Output = Result<Arc<LinuxDevice>, Error>> {
-        Blocking::new(move || unimplemented!())
-    }
-
     pub(crate) fn from_fd(
         fd: OwnedFd,
     ) -> impl MaybeFuture<Output = Result<Arc<LinuxDevice>, Error>> {
         Blocking::new(move || {
             debug!("Wrapping fd {} as usbfs device", fd.as_raw_fd());
-            Self::create_inner(
-                fd,
-                #[cfg(not(target_os = "android"))]
-                None,
-            )
+            Self::create_inner(fd, None)
         })
     }
 
     pub(crate) fn create_inner(
         fd: OwnedFd,
-        #[cfg(not(target_os = "android"))] sysfs: Option<SysfsPath>,
+        sysfs: Option<SysfsPath>,
     ) -> Result<Arc<LinuxDevice>, Error> {
         let descriptors = read_all_from_fd(&fd).map_err(|e| {
             Error::new_io(ErrorKind::Other, "failed to read descriptors", e).log_error()
@@ -141,7 +127,6 @@ impl LinuxDevice {
             return Err(Error::new(ErrorKind::Other, "invalid device descriptor"));
         };
 
-        #[cfg(not(target_os = "android"))]
         let active_config: u8 = if let Some(sysfs) = sysfs.as_ref() {
             match sysfs.read_attr("bConfigurationValue") {
                 Ok(v) => v,
@@ -161,9 +146,6 @@ impl LinuxDevice {
             guess_active_configuration(&fd, &descriptors)
         };
 
-        #[cfg(target_os = "android")]
-        let active_config = guess_active_configuration(&fd, &descriptors);
-
         let timerfd = timerfd_create(
             rustix::time::TimerfdClockId::Monotonic,
             TimerfdFlags::CLOEXEC | TimerfdFlags::NONBLOCK,
@@ -176,7 +158,6 @@ impl LinuxDevice {
                 fd,
                 events_id,
                 descriptors,
-                #[cfg(not(target_os = "android"))]
                 sysfs,
                 active_config: AtomicU8::new(active_config),
                 timerfd,
@@ -331,7 +312,6 @@ impl LinuxDevice {
     }
 
     pub(crate) fn active_configuration_value(&self) -> u8 {
-        #[cfg(not(target_os = "android"))]
         if let Some(sysfs) = self.sysfs.as_ref() {
             match sysfs.read_attr("bConfigurationValue") {
                 Ok(v) => {
@@ -451,7 +431,6 @@ impl LinuxDevice {
         })
     }
 
-    #[cfg(target_os = "linux")]
     pub(crate) fn detach_kernel_driver(
         self: &Arc<Self>,
         interface_number: u8,
@@ -464,7 +443,6 @@ impl LinuxDevice {
         })
     }
 
-    #[cfg(target_os = "linux")]
     pub(crate) fn attach_kernel_driver(
         self: &Arc<Self>,
         interface_number: u8,
